@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>M & M A.I. Sniper Platform</title>
+  <style>
+    body {
+      background-color: #000016;
+      color: #00ffff;
+      font-family: 'Courier New', Courier, monospace;
+      text-align: center;
+      padding: 2rem;
+    }
+    h1 {
+      text-shadow: 0 0 10px #00ffff;
+    }
+    button {
+      background: #00ffff;
+      color: #000;
+      font-weight: bold;
+      padding: 1rem 2rem;
+      margin: 0.5rem;
+      border: none;
+      border-radius: 10px;
+      box-shadow: 0 0 20px #00ffff;
+      cursor: pointer;
+      transition: all 0.3s ease-in-out;
+      font-size: 1.2rem;
+    }
+    button:hover {
+      transform: scale(1.1);
+      box-shadow: 0 0 40px #00ffff;
+    }
+    #connectButton {
+      background: #004444;
+      color: #00ffff;
+      box-shadow: 0 0 10px #00ffff inset;
+    }
+    #connectButton:hover {
+      background: #006666;
+      box-shadow: 0 0 30px #00ffff inset;
+    }
+    .status {
+      margin-top: 2rem;
+      background: #111;
+      padding: 1rem;
+      border-radius: 10px;
+      box-shadow: 0 0 15px #00ffff;
+      font-size: 1.1rem;
+      white-space: pre-wrap;
+      min-height: 6rem;
+    }
+    #walletAddress {
+      margin-top: 1rem;
+      font-weight: bold;
+      font-size: 1.1rem;
+      text-shadow: 0 0 8px #00ffff;
+      user-select: all;
+    }
+  </style>
+</head>
+<body>
+  <h1>M & M A.I. Sniper Platform</h1>
+  <div id="walletAddress">Wallet: Not connected</div>
+  <button id="connectButton" onclick="connectPhantom()">Connect to Phantom Wallet</button>
+  <br />
+  <button id="startButton" onclick="startSniping()" disabled>🚀 Start Sniping</button>
+  <button id="stopButton" onclick="stopSniping()" disabled>🛑 Stop Sniping</button>
+
+  <div class="status" id="statusBox">Status: Waiting for Phantom connection...</div>
+
+  <script>
+    let walletPublicKey = null;
+    let statusInterval = null;
+
+    async function connectPhantom() {
+      if (!window.solana || !window.solana.isPhantom) {
+        alert("Phantom wallet not found! Please install Phantom.");
+        return;
+      }
+      try {
+        const resp = await window.solana.connect();
+        walletPublicKey = resp.publicKey.toString();
+        document.getElementById('walletAddress').textContent = `Wallet: ${walletPublicKey}`;
+        document.getElementById('connectButton').style.display = 'none';
+        document.getElementById('startButton').disabled = false;
+        updateStatus("Phantom wallet connected.");
+        startStatusPolling();
+      } catch (err) {
+        updateStatus("Phantom connection rejected or failed.");
+      }
+    }
+
+    async function autoConnectPhantom() {
+      if (window.solana && window.solana.isPhantom) {
+        try {
+          const resp = await window.solana.connect({ onlyIfTrusted: true });
+          walletPublicKey = resp.publicKey.toString();
+          document.getElementById('walletAddress').textContent = `Wallet: ${walletPublicKey}`;
+          document.getElementById('connectButton').style.display = 'none';
+          document.getElementById('startButton').disabled = false;
+          updateStatus("Phantom wallet auto-connected.");
+          startStatusPolling();
+        } catch {
+          // User has not connected before, do nothing and show connect button
+          updateStatus("Please connect your Phantom wallet.");
+        }
+      } else {
+        updateStatus("Phantom wallet not found. Please install Phantom.");
+      }
+    }
+
+    function updateStatus(message) {
+      document.getElementById('statusBox').textContent = `Status: ${message}`;
+    }
+
+    async function startSniping() {
+      if (!walletPublicKey) {
+        alert("Connect your Phantom wallet first.");
+        return;
+      }
+      try {
+        const res = await fetch('/api/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ wallet: walletPublicKey }),
+        });
+        if (res.ok) {
+          updateStatus("Sniping started.");
+          document.getElementById('startButton').disabled = true;
+          document.getElementById('stopButton').disabled = false;
+          startStatusPolling();
+        } else {
+          const err = await res.json();
+          updateStatus("Error starting sniping: " + (err.error || err.message || "Unknown error"));
+        }
+      } catch (e) {
+        updateStatus("Network error starting sniping.");
+      }
+    }
+
+    async function stopSniping() {
+      try {
+        const res = await fetch('/api/stop', { method: 'POST' });
+        if (res.ok) {
+          updateStatus("Sniping stopped.");
+          document.getElementById('startButton').disabled = false;
+          document.getElementById('stopButton').disabled = true;
+          stopStatusPolling();
+        } else {
+          const err = await res.json();
+          updateStatus("Error stopping sniping: " + (err.error || err.message || "Unknown error"));
+        }
+      } catch (e) {
+        updateStatus("Network error stopping sniping.");
+      }
+    }
+
+    async function fetchStatus() {
+      try {
+        const res = await fetch('/api/status');
+        if (!res.ok) {
+          updateStatus("Failed to fetch status.");
+          return;
+        }
+        const data = await res.json();
+        let statusText = `Bot Status: ${data.running ? "Running" : "Stopped"}\n`;
+        statusText += `Sniper Wallet: ${data.sniperWallet || "N/A"}\n`;
+        statusText += `Accumulated Profit: $${data.profitUsd?.toFixed(2) || "0.00"}`;
+        updateStatus(statusText);
+
+        // Enable/disable buttons based on bot status
+        if (data.running) {
+          document.getElementById('startButton').disabled = true;
+          document.getElementById('stopButton').disabled = false;
+        } else {
+          document.getElementById('startButton').disabled = false;
+          document.getElementById('stopButton').disabled = true;
+        }
+      } catch {
+        updateStatus("Error fetching status.");
+      }
+    }
+
+    function startStatusPolling() {
+      if (statusInterval) clearInterval(statusInterval);
+      fetchStatus();
+      statusInterval = setInterval(fetchStatus, 30000);
+    }
+
+    function stopStatusPolling() {
+      if (statusInterval) {
+        clearInterval(statusInterval);
+        statusInterval = null;
+      }
+    }
+
+    window.addEventListener('load', () => {
+      autoConnectPhantom();
+    });
+  </script>
+</body>
+</html>
