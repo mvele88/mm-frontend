@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>M & M A.I. PLATFORM</title>
+  <style>
+    body {
+      background: radial-gradient(circle at top, #0a0f1f, #000);
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      color: white;
+      text-align: center;
+      padding: 20px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    h1 {
+      font-size: 2.5rem;
+      color: #00ffff;
+      text-shadow: 0 0 10px #00ffff;
+      margin-bottom: 40px;
+    }
+    .button {
+      background-color: #1f1fff;
+      border: none;
+      padding: 15px 30px;
+      font-size: 1.2rem;
+      color: white;
+      cursor: pointer;
+      border-radius: 12px;
+      margin: 10px;
+      box-shadow: 0 0 20px #1f1fff;
+      animation: pulse 2s infinite;
+      min-width: 160px;
+    }
+    .button:disabled {
+      background-color: #555;
+      box-shadow: none;
+      cursor: not-allowed;
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 5px #00ffff; }
+      50% { box-shadow: 0 0 20px #00ffff; }
+      100% { box-shadow: 0 0 5px #00ffff; }
+    }
+    #status, #profit, #yearlyEarnings {
+      margin-top: 20px;
+      font-size: 1.2rem;
+      min-height: 1.4em;
+    }
+    #footerBanner {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #002233dd;
+      padding: 15px 10px;
+      font-size: 1rem;
+      color: #00ffff;
+      box-shadow: 0 -3px 10px #00ffffaa;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>M & M A.I. PLATFORM</h1>
+  <button class="button" id="connectButton">Connect to Phantom</button>
+  <button class="button" id="startSniping" disabled>Start Sniping</button>
+  <button class="button" id="stopSniping" disabled>Stop Sniping</button>
+
+  <div id="status">Status: Waiting for wallet connection...</div>
+  <div id="profit">Bot Wallet Profit: loading...</div>
+  <div id="yearlyEarnings"></div>
+
+  <div id="footerBanner">
+    With <span id="requiredSOL">5</span> SOL in your Phantom wallet, you could potentially earn:<br/>
+    - $250/day<br/>
+    - $91,250/year (based on 365 days of successful sniping)<br/>
+    <small>Note: Estimates only. Actual earnings vary.</small>
+  </div>
+
+  <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.js"></script>
+  <script>
+    const API_BASE = 'https://m-m-8080-backend.vercel.app';
+    // This API_KEY is used for the client to access the bot-balance endpoint.
+    // For start/stop, future authentication using wallet signatures is recommended.
+    const CLIENT_API_KEY_FOR_BOT_BALANCE = 'MMAI-ADMIN-KEY-2293-NEW';
+
+    let walletAddress = null;
+    let snipingActive = false; // This will now reflect the *actual* bot state from the backend
+
+    const connectButton = document.getElementById('connectButton');
+    const startButton = document.getElementById('startSniping');
+    const stopButton = document.getElementById('stopSniping');
+    const statusDiv = document.getElementById('status');
+    const profitDiv = document.getElementById('profit');
+    const yearlyEarningsDiv = document.getElementById('yearlyEarnings');
+    const requiredSOLSpan = document.getElementById('requiredSOL');
+
+    // Fetch current SOL/USD price from backend (or use fixed fallback)
+    async function fetchSolPrice() {
+      try {
+        const res = await fetch(`${API_BASE}/api/sol-price`);
+        const data = await res.json();
+        if (data && data.price) {
+          return data.price;
+        }
+      } catch {
+        // fallback
+      }
+      return 150; // fallback fixed price if backend unavailable
+    }
+
+    // Update yearly earnings banner with dynamic required SOL amount
+    async function updateYearlyBanner() {
+      const solPrice = await fetchSolPrice();
+      // User wants yearly profit goal > $100,000
+      const yearlyGoal = 100000;
+      const dailyGoal = yearlyGoal / 365;
+      const solNeeded = dailyGoal / solPrice * 5; // scale by 5 SOL base from your example
+
+      requiredSOLSpan.textContent = solNeeded.toFixed(2);
+
+      yearlyEarningsDiv.innerHTML = `
+        <strong>Estimated Earnings with ${solNeeded.toFixed(2)} SOL:</strong><br/>
+        - $${dailyGoal.toFixed(2)} / day<br/>
+        - $${yearlyGoal.toLocaleString()} / year (est.)<br/>
+        <small>Note: Actual earnings depend on market & sniping success.</small>
+      `;
+    }
+
+    // Connect Phantom Wallet
+    async function connectWallet() {
+      if (!window.solana || !window.solana.isPhantom) {
+        statusDiv.textContent = 'Phantom Wallet not detected. Please install Phantom.';
+        return;
+      }
+
+      try {
+        const resp = await window.solana.connect();
+        walletAddress = resp.publicKey.toString();
+        statusDiv.textContent = `Connected: ${walletAddress}`;
+
+        const balanceSOL = await getSolBalance(walletAddress);
+        const balanceUSD = balanceSOL * (await fetchSolPrice());
+        if (balanceUSD >= 50) {
+          statusDiv.textContent += ` | Balance OK: $${balanceUSD.toFixed(2)}`;
+          startButton.disabled = false;
+        } else {
+          statusDiv.textContent += ` | Insufficient SOL balance ($${balanceUSD.toFixed(2)}). Minimum $50 required.`;
+          startButton.disabled = true;
+        }
+      } catch (err) {
+        statusDiv.textContent = `Wallet connection failed: ${err.message || err}`;
+      }
+    }
+
+    // Get SOL balance for given publicKey
+    async function getSolBalance(pubKeyStr) {
+      const connection = new solanaWeb3.Connection(solanaWeb3.clusterApiUrl('mainnet-beta'));
+      const publicKey = new solanaWeb3.PublicKey(pubKeyStr);
+      const balanceLamports = await connection.getBalance(publicKey);
+      return balanceLamports / solanaWeb3.LAMPORTS_PER_SOL;
+    }
+
+    // Start sniping bot
+    async function startSniping() {
+      if (!walletAddress) {
+        statusDiv.textContent = 'Connect wallet first.';
+        return;
+      }
+
+      startButton.disabled = true;
+      stopButton.disabled = false;
+      statusDiv.textContent = 'Starting sniping bot...';
+
+      try {
+        const res = await fetch(`${API_BASE}/api/start`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            // 'x-api-key': CLIENT_API_KEY_FOR_BOT_BALANCE // REMOVED: Will rely on wallet signature for real auth
+          },
+          body: JSON.stringify({ wallet: walletAddress }) // Pass user's wallet for backend to identify
+        });
+        const data = await res.json();
+        if (data.success) {
+          statusDiv.textContent = 'Sniping started.';
+          snipingActive = true; // Set client-side state
+          fetchRealProfit(); // Immediately fetch profit after start
+        } else {
+          statusDiv.textContent = 'Error: ' + (data.error || 'Unknown error');
+          startButton.disabled = false;
+          stopButton.disabled = true;
+          snipingActive = false;
+        }
+      } catch (err) {
+        console.error('Network error while starting sniping:', err);
+        statusDiv.textContent = 'Network error while starting sniping.';
+        startButton.disabled = false;
+        stopButton.disabled = true;
+        snipingActive = false;
+      }
+    }
+
+    // Stop sniping bot
+    async function stopSniping() {
+      stopButton.disabled = true;
+      startButton.disabled = false;
+      statusDiv.textContent = 'Stopping sniping bot...';
+
+      try {
+        const res = await fetch(`${API_BASE}/api/stop`, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            // 'x-api-key': CLIENT_API_KEY_FOR_BOT_BALANCE // REMOVED: Will rely on wallet signature for real auth
+          },
+          body: JSON.stringify({ wallet: walletAddress }) // Pass user's wallet for backend to identify
+        });
+        const data = await res.json();
+        if (data.success) {
+          statusDiv.textContent = 'Sniping stopped.';
+          snipingActive = false; // Set client-side state
+        } else {
+          statusDiv.textContent = 'Error: ' + (data.error || 'Unknown error');
+          stopButton.disabled = false; // Allow retrying stop if it failed
+          startButton.disabled = false; // Re-enable start if stop failed
+          snipingActive = true; // If stop failed, bot is still active
+        }
+      } catch (err) {
+        console.error('Network error while stopping sniping:', err);
+        statusDiv.textContent = 'Network error while stopping sniping.';
+        stopButton.disabled = false;
+        startButton.disabled = false;
+        snipingActive = true;
+      }
+    }
+
+    // Fetch real profit and update UI (now uses x-api-key for client access only)
+    async function fetchRealProfit() {
+        // Only poll if a wallet is connected, or if we *think* sniping is active
+        if (!walletAddress && !snipingActive) return; 
+
+        try {
+            const res = await fetch(`${API_BASE}/api/bot-balance`, {
+                headers: { 'x-api-key': CLIENT_API_KEY_FOR_BOT_BALANCE } // Use the client API key here if needed
+            });
+            const data = await res.json();
+            if (data && data.usd !== undefined && data.sol !== undefined) {
+                profitDiv.textContent = `Bot Wallet Profit: $${data.usd} USD (SOL: ${data.sol})`;
+            } else {
+                profitDiv.textContent = 'Bot Wallet Profit: unavailable';
+            }
+        } catch {
+            profitDiv.textContent = 'Bot Wallet Profit: unavailable';
+        }
+    }
+
+    // Auto connect if trusted
+    window.addEventListener('load', async () => {
+        await updateYearlyBanner();
+
+        if (window.solana && window.solana.isPhantom) {
+            try {
+                const resp = await window.solana.connect({ onlyIfTrusted: true });
+                walletAddress = resp.publicKey.toString();
+                statusDiv.textContent = `Auto-connected: ${walletAddress}`;
+
+                const balanceSOL = await getSolBalance(walletAddress);
+                const balanceUSD = balanceSOL * (await fetchSolPrice());
+                if (balanceUSD >= 50) {
+                    statusDiv.textContent += ` | Balance OK: $${balanceUSD.toFixed(2)}`;
+                    startButton.disabled = false;
+                } else {
+                    statusDiv.textContent += ` | Insufficient SOL balance ($${balanceUSD.toFixed(2)}). Minimum $50 required.`;
+                    startButton.disabled = true;
+                }
+            } catch {
+                statusDiv.textContent = 'Phantom detected. Connect to begin.';
+            }
+        } else {
+            statusDiv.textContent = 'Phantom Wallet not detected.';
+        }
+        // Also fetch profit on load to update initial status
+        fetchRealProfit(); 
+    });
+
+    connectButton.addEventListener('click', connectWallet);
+    startButton.addEventListener('click', startSniping);
+    stopButton.addEventListener('click', stopSniping);
+
+    // Poll profit every 5 seconds while a wallet is connected or sniping is thought to be active
+    setInterval(fetchRealProfit, 5000);
+  </script>
+</body>
+</html>
