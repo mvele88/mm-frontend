@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>M & M A.I. PLATFORM</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      background: radial-gradient(circle at top, #0a0f1f, #000);
+      font-family: 'Inter', sans-serif; /* Using Inter for consistency */
+      color: white;
+      text-align: center;
+      padding: 2rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh; /* Ensure full viewport height */
+    }
+    h1 {
+      font-size: 2.5rem; /* Slightly larger */
+      margin-bottom: 1.5rem;
+      color: #00f2ff; /* Vibrant blue */
+      text-shadow: 0 0 10px #00f2ff;
+    }
+    .button-container {
+      display: flex;
+      flex-wrap: wrap; /* Allow wrapping on small screens */
+      justify-content: center;
+      margin-top: 1rem;
+      gap: 1rem; /* Space between buttons */
+    }
+    button {
+      padding: 1rem 2rem;
+      font-size: 1.1rem; /* Slightly larger font */
+      margin: 0; /* Managed by gap in container */
+      border: none;
+      border-radius: 12px;
+      background: linear-gradient(45deg, #00f2ff, #00c6ff); /* Gradient background */
+      color: #000;
+      font-weight: bold;
+      box-shadow: 0 0 20px rgba(0, 242, 255, 0.6); /* More prominent shadow */
+      cursor: pointer;
+      transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem; /* Space for icon */
+    }
+    button:disabled {
+      background: #444;
+      box-shadow: none;
+      cursor: not-allowed;
+      color: #bbb;
+    }
+    button:hover:not(:disabled) {
+      transform: translateY(-3px) scale(1.05); /* Lift and scale effect */
+      box-shadow: 0 5px 25px rgba(0, 242, 255, 0.8);
+    }
+    .balance-section {
+      background: rgba(255, 255, 255, 0.08); /* Slightly darker background */
+      padding: 1.5rem 2rem;
+      border-radius: 15px; /* More rounded */
+      margin-top: 2rem;
+      width: 80%; /* Responsive width */
+      max-width: 600px; /* Max width for larger screens */
+      box-shadow: 0 0 30px rgba(0, 242, 255, 0.3);
+      text-align: left; /* Align text left within the box */
+    }
+    .balance-item {
+      margin-bottom: 0.8rem;
+      font-size: 1.1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.8rem;
+    }
+    .balance-item span {
+      font-weight: bold;
+      color: #00f2ff;
+    }
+    .status {
+      margin-top: 1.5rem;
+      font-size: 1.1rem;
+      color: #0ff;
+      min-height: 24px; /* Ensure space even when empty */
+    }
+    .loading-spinner {
+        border: 4px solid rgba(255, 255, 255, 0.3);
+        border-top: 4px solid #00f2ff;
+        border-radius: 50%;
+        width: 20px;
+        height: 20px;
+        animation: spin 1s linear infinite;
+        display: inline-block;
+        vertical-align: middle;
+        margin-left: 10px;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+      h1 {
+        font-size: 2rem;
+      }
+      button {
+        width: calc(50% - 1rem); /* Two buttons per row on smaller screens */
+      }
+      .balance-section {
+        width: 95%;
+        padding: 1rem;
+      }
+      .balance-item {
+        font-size: 1rem;
+      }
+    }
+    @media (max-width: 480px) {
+      button {
+        width: 100%; /* One button per row on very small screens */
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>M & M A.I. PLATFORM</h1>
+
+  <div class="button-container">
+    <button id="connectBtn"><i class="fab fa-solana"></i> Connect Phantom</button>
+    <button id="startSnipingBtn"><i class="fas fa-play"></i> Start Sniping</button>
+    <button id="withdrawBtcBtn"><i class="fab fa-btc"></i> Withdraw BTC</button>
+  </div>
+
+  <div class="status" id="statusMsg"></div>
+
+  <div class="balance-section">
+    <h2>Wallet Balances</h2>
+    <div class="balance-item"><i class="fab fa-solana" style="color: #00f2ff;"></i> Phantom Wallet (User): <span id="phantomBalance">Loading...</span></div>
+    <div class="balance-item"><i class="fab fa-solana" style="color: #00f2ff;"></i> Sniping/Fees Wallet: <span id="snipingFeesBalance">Loading...</span></div>
+    <div class="balance-item"><i class="fab fa-solana" style="color: #00f2ff;"></i> Bot/Compounding Wallet: <span id="botCompoundingBalance">Loading...</span></div>
+    <div class="balance-item"><i class="fab fa-btc" style="color: #F7931A;"></i> BTC Payout Balance: <span id="btcPayoutBalance">Loading...</span></div>
+  </div>
+
+  <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script> <!-- SweetAlert for alerts -->
+  <script>
+    let provider;
+    const connectBtn = document.getElementById("connectBtn");
+    const startSnipingBtn = document.getElementById("startSnipingBtn"); // Renamed button ID
+    const withdrawBtcBtn = document.getElementById("withdrawBtcBtn");   // Renamed button ID
+    const statusMsg = document.getElementById("statusMsg");
+
+    const phantomBalanceSpan = document.getElementById("phantomBalance");
+    const snipingFeesBalanceSpan = document.getElementById("snipingFeesBalance");
+    const botCompoundingBalanceSpan = document.getElementById("botCompoundingBalance");
+    const btcPayoutBalanceSpan = document.getElementById("btcPayoutBalance");
+
+    const BACKEND_URL = "https://m-m-8080-backend.vercel.app"; // Your backend URL
+
+    const showLoading = (message) => {
+        statusMsg.innerHTML = `${message} <div class="loading-spinner"></div>`;
+    };
+
+    const updateStatus = (msg, isError = false) => {
+      statusMsg.textContent = msg;
+      statusMsg.style.color = isError ? '#ff4d4d' : '#00f2ff'; // Red for errors, blue for success/info
+    };
+
+    // Fetches current SOL/USD price (from frontend, or could be backend if needed)
+    const getSOLPriceUSD = async () => {
+      try {
+        const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd");
+        const data = await res.json();
+        return data.solana.usd;
+      } catch (e) {
+        console.error("Error fetching SOL price from Coingecko:", e);
+        return 150; // fallback estimate
+      }
+    };
+
+    // Function to fetch and display all balances
+    const fetchAndDisplayBalances = async () => {
+      showLoading("Fetching balances...");
+      try {
+        // Fetch Phantom Wallet Balance (direct Solana Web3 call)
+        if (provider && provider.publicKey) {
+          const connection = new solanaWeb3.Connection(solanaWeb3.clusterApiUrl("mainnet-beta"), "confirmed");
+          const balance = await connection.getBalance(provider.publicKey);
+          const sol = balance / 1e9;
+          const price = await getSOLPriceUSD();
+          const usd = sol * price;
+          phantomBalanceSpan.textContent = `${sol.toFixed(4)} SOL (~$${usd.toFixed(2)})`;
+        } else {
+          phantomBalanceSpan.textContent = "N/A (Connect Phantom)";
+        }
+
+        // Fetch Sniping/Fees Wallet Balance (from backend)
+        const snipingFeesRes = await fetch(`${BACKEND_URL}/sol-sniping-balance`);
+        const snipingFeesData = await snipingFeesRes.json();
+        if (snipingFeesData.error) {
+          snipingFeesBalanceSpan.textContent = `Error: ${snipingFeesData.error}`;
+        } else {
+          const price = await getSOLPriceUSD();
+          const usd = snipingFeesData.balance * price;
+          snipingFeesBalanceSpan.textContent = `${snipingFeesData.balance.toFixed(4)} SOL (~$${usd.toFixed(2)})`;
+        }
+
+        // Fetch Bot/Compounding Wallet Balance (from backend)
+        const botCompoundingRes = await fetch(`${BACKEND_URL}/sol-bot-balance`);
+        const botCompoundingData = await botCompoundingRes.json();
+        if (botCompoundingData.error) {
+          botCompoundingBalanceSpan.textContent = `Error: ${botCompoundingData.error}`;
+        } else {
+          const price = await getSOLPriceUSD();
+          const usd = botCompoundingData.balance * price;
+          botCompoundingBalanceSpan.textContent = `${botCompoundingData.balance.toFixed(4)} SOL (~$${usd.toFixed(2)})`;
+        }
+
+        // Fetch BTC Payout Balance (from backend)
+        const btcPayoutRes = await fetch(`${BACKEND_URL}/btc-payout-balance`);
+        const btcPayoutData = await btcPayoutRes.json();
+        if (btcPayoutData.error) {
+          btcPayoutBalanceSpan.textContent = `Error: ${btcPayoutData.error}`;
+        } else {
+          btcPayoutBalanceSpan.textContent = `${btcPayoutData.balance} BTC`;
+        }
+        updateStatus("Balances updated successfully.");
+
+      } catch (e) {
+        console.error("Failed to fetch all balances:", e);
+        updateStatus("Failed to update all balances. Check console for details.", true);
+      }
+    };
+
+    // --- Event Listeners ---
+
+    window.onload = async () => {
+      if ("solana" in window && window.solana.isPhantom) {
+        provider = window.solana;
+        try {
+          await provider.connect({ onlyIfTrusted: true });
+          connectBtn.innerText = "Phantom Connected";
+          connectBtn.disabled = true; // Disable if already connected
+          await fetchAndDisplayBalances();
+          startSnipingBtn.disabled = false; // Enable sniping if connected
+        } catch (err) {
+          console.warn("Phantom connection (onlyIfTrusted) failed or not authorized.", err);
+          updateStatus("Phantom not connected or authorization revoked.", true);
+          startSnipingBtn.disabled = true;
+          // Still try to fetch other balances that don't depend on Phantom
+          await fetchAndDisplayBalances();
+        }
+      } else {
+        updateStatus("Phantom wallet not found. Please install it.", true);
+        startSnipingBtn.disabled = true;
+        await fetchAndDisplayBalances(); // Fetch backend balances even without Phantom
+      }
+    };
+
+    connectBtn.onclick = async () => {
+      try {
+        if (!provider) {
+             updateStatus("Phantom wallet not found. Please install it.", true);
+             return;
+        }
+        showLoading("Connecting Phantom...");
+        await provider.connect();
+        connectBtn.innerText = "Phantom Connected";
+        connectBtn.disabled = true; // Disable after successful connection
+        startSnipingBtn.disabled = false;
+        await fetchAndDisplayBalances(); // Refresh all balances
+      } catch (e) {
+        console.error("Phantom connection failed:", e);
+        updateStatus("Phantom connection failed.", true);
+        startSnipingBtn.disabled = true;
+      }
+    };
+
+    startSnipingBtn.onclick = async () => {
+        showLoading("🚀 Starting sniping and simulating profits...");
+        try {
+            // Simulate a profit amount to send to the backend
+            // You can make this dynamic later (e.g., user input, or based on bot's internal logic)
+            const simulatedSolProfit = 0.01 + Math.random() * 0.1; // Example: 0.01 to 0.11 SOL profit
+
+            const res = await fetch(`${BACKEND_URL}/simulate-sol-profit`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ solAmount: simulatedSolProfit })
+            });
+            const data = await res.json();
+
+            if (data.success) {
+                updateStatus(`✅ Sniping simulated! Profit processed. BTC Payout Balance updated.`, false);
+                await fetchAndDisplayBalances(); // Refresh balances after simulation
+            } else {
+                updateStatus(`❌ Sniping simulation failed: ${data.error}`, true);
+            }
+        } catch (e) {
+            console.error("Error during sniping simulation:", e);
+            updateStatus("❌ Sniping simulation failed due to network error.", true);
+        }
+    };
+
+    withdrawBtcBtn.onclick = async () => {
+        // Use SweetAlert for better user experience than prompt/alert
+        const { value: formValues } = await Swal.fire({
+            title: 'Withdraw BTC',
+            html:
+                '<input id="swal-input1" class="swal2-input" placeholder="BTC Recipient Address">' +
+                '<input id="swal-input2" class="swal2-input" type="number" step="any" placeholder="Amount in BTC">',
+            focusConfirm: false,
+            preConfirm: () => {
+                const recipient = document.getElementById('swal-input1').value;
+                const amount = document.getElementById('swal-input2').value;
+                if (!recipient || !amount) {
+                    Swal.showValidationMessage(`Please enter both recipient address and amount`);
+                    return false;
+                }
+                return { recipient: recipient, amount: parseFloat(amount) };
+            }
+        });
+
+        if (formValues) {
+            showLoading("Initiating BTC withdrawal...");
+            try {
+                const res = await fetch(`${BACKEND_URL}/withdraw-btc`, { // Corrected endpoint
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ recipient: formValues.recipient, amount: formValues.amount })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    Swal.fire('Success!', `Withdrawal successful. TxID: ${data.txid}`, 'success');
+                    updateStatus(`✅ BTC Withdrawal successful. TxID: ${data.txid}`, false);
+                    await fetchAndDisplayBalances(); // Refresh balances after withdrawal
+                } else {
+                    Swal.fire('Error!', `Withdrawal failed: ${data.error}`, 'error');
+                    updateStatus(`❌ BTC Withdrawal failed: ${data.error}`, true);
+                }
+            } catch (e) {
+                console.error("Error during BTC withdrawal:", e);
+                Swal.fire('Error!', 'BTC Withdrawal failed due to network error.', 'error');
+                updateStatus("❌ BTC Withdrawal failed due to network error.", true);
+            }
+        }
+    };
+  </script>
+</body>
+</html>
